@@ -6,7 +6,7 @@ using MessagePack;
 
 namespace GodotNetCore {
     public struct ParsedPacket {
-        public UInt16 packetId;
+        public UInt16 packetTypeId;
         public byte[] rawData;
     }
 
@@ -19,17 +19,17 @@ namespace GodotNetCore {
             idToTypeName.Add(typeId, typeName);
         }
 
-        public static UInt16? getPacketTypeId(string typeName) {
+        public static UInt16? GetPacketTypeId(string typeName) {
             if (typeNameToId.TryGetValue(typeName, out var typeId)) return typeId;
             else return null;
         }
 
-        public static string? getPacketTypeName(UInt16 typeId) {
+        public static string? GetPacketTypeName(UInt16 typeId) {
             if (idToTypeName.TryGetValue(typeId, out var typeName)) return typeName;
             else return null;
         }
 
-        public static Packet CreatePacket<T>(UInt16 packetType, T data, PacketFlags flags = PacketFlags.None) where T : struct {
+        public static Packet CreatePacket<T>(UInt16 packetType, T data, PacketFlags flags = PacketFlags.None) where T : notnull {
             List<byte> bytes = new List<byte>();
 
             bytes.AddRange(BitConverter.GetBytes(packetType));
@@ -41,7 +41,7 @@ namespace GodotNetCore {
             return packet;
         }
 
-        public static Packet createPacket<T>(string packetTypeName, T data) where T : struct {
+        public static Packet createPacket<T>(string packetTypeName, T data) where T : notnull {
             if (typeNameToId.TryGetValue(packetTypeName, out var typeName)) {
                 return CreatePacket(typeName, data);
             } else {
@@ -55,7 +55,7 @@ namespace GodotNetCore {
             byte[] bytes = new byte[packet.Length];
             packet.CopyTo(bytes);
 
-            ppacket.packetId = BitConverter.ToUInt16(bytes, 0);
+            ppacket.packetTypeId = BitConverter.ToUInt16(bytes, 0);
 
             const int headerSize = sizeof(UInt16);
             ppacket.rawData = bytes.Skip(headerSize).ToArray();
@@ -63,7 +63,7 @@ namespace GodotNetCore {
             return ppacket;
         }
 
-        public static T ParseRawData<T>(byte[] rawData) where T : struct {
+        public static T ParseRawData<T>(byte[] rawData) where T : notnull {
             return MessagePackSerializer.Deserialize<T>(rawData);
         }
     }
