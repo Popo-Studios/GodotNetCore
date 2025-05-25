@@ -5,14 +5,33 @@ using ENet;
 using MessagePack;
 
 namespace GodotNetCore {
-    public struct ParsedPacket {
+    [MessagePackObject]
+    public struct PacketHeader {
+        [Key(0)]
         public UInt16 packetTypeId;
-        public byte[] rawData;
+        [Key(1)]
+        public Int64 timestamp;
     }
 
+    public struct ParsedPacket {
+        public PacketHeader header;
+        public byte[] rawData;
+    }
     public static class PacketUtils {
         private readonly static Dictionary<string, UInt16> typeNameToId = new Dictionary<string, UInt16>();
         private readonly static Dictionary<UInt16, string> idToTypeName = new Dictionary<UInt16, string>();
+
+        public enum PredefinedPacketTypeId: UInt16 {
+            CreateSession = UInt16.MaxValue,
+            JoinSession = UInt16.MaxValue - 1,
+            LeaveSession = UInt16.MaxValue - 2
+        }             
+
+        static PacketUtils() {
+            RegisterPacketType((UInt16)PredefinedPacketTypeId.CreateSession, "CreateSession");
+            RegisterPacketType((UInt16)PredefinedPacketTypeId.JoinSession, "JoinSession");
+            RegisterPacketType((UInt16)PredefinedPacketTypeId.LeaveSession, "LeaveSession");
+        }
 
         public static void RegisterPacketType(UInt16 typeId, string typeName) {
             typeNameToId.Add(typeName, typeId);
@@ -29,11 +48,19 @@ namespace GodotNetCore {
             else return null;
         }
 
-        public static Packet CreatePacket<T>(UInt16 packetType, T data, PacketFlags flags = PacketFlags.None) where T : notnull {
+        public static Packet CreatePacket<T>(UInt16 packetType, T data, PacketFlags flags = PacketFlags.None, Int64? timestamp = null) where T : notnull {
             List<byte> bytes = new List<byte>();
 
-            bytes.AddRange(BitConverter.GetBytes(packetType));
-            bytes.AddRange(MessagePackSerializer.Serialize(data));
+            byte[] serializedData = MessagePackSerializer.Serialize(data);
+
+            PacketHeader header;
+            header.packetTypeId = packetType;
+            header.timestamp = timestamp ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            byte[] serializedHeader = MessagePackSerializer.Serialize(header);
+
+            bytes.AddRange(BitConverter.GetBytes(serializedHeader.Length));
+            bytes.AddRange(serializedHeader);
+            bytes.AddRange(serializedData);
 
             Packet packet = default;
             packet.Create(bytes.ToArray(), flags);
@@ -41,11 +68,11 @@ namespace GodotNetCore {
             return packet;
         }
 
-        public static Packet createPacket<T>(string packetTypeName, T data) where T : notnull {
+        public static Packet CreatePacket<T>(string packetTypeName, T data, PacketFlags flags = PacketFlags.None, Int64? timestamp = null) where T : notnull {
             if (typeNameToId.TryGetValue(packetTypeName, out var typeName)) {
-                return CreatePacket(typeName, data);
+                return CreatePacket(typeName, data, flags, timestamp);
             } else {
-                throw new KeyNotFoundException($"There is no packet type for \"{packetTypeName}\"");
+                throw new UnknownPacketTypeException(packetTypeName);
             }
         }
 
@@ -55,15 +82,16 @@ namespace GodotNetCore {
             byte[] bytes = new byte[packet.Length];
             packet.CopyTo(bytes);
 
-            ppacket.packetTypeId = BitConverter.ToUInt16(bytes, 0);
-
-            const int headerSize = sizeof(UInt16);
+            Int32 headerSize = BitConverter.ToInt32(bytes);
+            bytes = bytes.Skip(sizeof(Int32)).ToArray();
+            ppacket.header = MessagePackSerializer.Deserialize<PacketHeader>(bytes);
+            
             ppacket.rawData = bytes.Skip(headerSize).ToArray();
 
             return ppacket;
         }
 
-        public static T ParseRawData<T>(byte[] rawData) where T : notnull {
+        public static T ParseRawData<T>(PacketHeader header, byte[] rawData) where T : notnull {
             return MessagePackSerializer.Deserialize<T>(rawData);
         }
     }
