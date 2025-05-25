@@ -149,8 +149,8 @@ namespace GodotNetCore {
                                 OnPacketReceiveHandler?.Invoke(netEvent.Packet, netEvent.ChannelID);
 
                                 ParsedPacket ppacket = PacketUtils.ParsePacket(netEvent.Packet);
-                                packetHandlers[ppacket.header.packetTypeId].ForEach((IPacketHandler handler) => {
-                                    handler.RawHandle(ppacket.header, ppacket.rawData);
+                                packetHandlers[ppacket.Header.PacketTypeId].ForEach((IPacketHandler handler) => {
+                                    handler.RawHandle(ppacket.Header, ppacket.RawData);
                                 });
 
                                 netEvent.Packet.Dispose();
