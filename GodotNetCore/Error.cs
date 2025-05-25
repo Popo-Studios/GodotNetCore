@@ -8,7 +8,8 @@ namespace GodotNetCore {
         }
     }
     public class SessionExistsException : Exception {
-        public SessionExistsException(ISessionInfo info) : base($"Session already exists (Name: {info.name}, Id: {info.sessionId})") {
+        public SessionExistsException(ISessionInfo info)
+            : base($"Session already exists (Name: {info.Name}, Id: {info.SessionId.SessionHost}:{info.SessionId.SessionPort}:{info.SessionId.SessionNumber})") {
         }
     }
 

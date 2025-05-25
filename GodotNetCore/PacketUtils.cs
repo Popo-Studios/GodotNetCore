@@ -8,14 +8,14 @@ namespace GodotNetCore {
     [MessagePackObject]
     public struct PacketHeader {
         [Key(0)]
-        public UInt16 packetTypeId;
+        public UInt16 PacketTypeId;
         [Key(1)]
-        public Int64 timestamp;
+        public Int64 Timestamp;
     }
 
     public struct ParsedPacket {
-        public PacketHeader header;
-        public byte[] rawData;
+        public PacketHeader Header;
+        public byte[] RawData;
     }
     public static class PacketUtils {
         private readonly static Dictionary<string, UInt16> typeNameToId = new Dictionary<string, UInt16>();
@@ -54,8 +54,8 @@ namespace GodotNetCore {
             byte[] serializedData = MessagePackSerializer.Serialize(data);
 
             PacketHeader header;
-            header.packetTypeId = packetType;
-            header.timestamp = timestamp ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            header.PacketTypeId = packetType;
+            header.Timestamp = timestamp ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             byte[] serializedHeader = MessagePackSerializer.Serialize(header);
 
             bytes.AddRange(BitConverter.GetBytes(serializedHeader.Length));
@@ -84,9 +84,9 @@ namespace GodotNetCore {
 
             Int32 headerSize = BitConverter.ToInt32(bytes);
             bytes = bytes.Skip(sizeof(Int32)).ToArray();
-            ppacket.header = MessagePackSerializer.Deserialize<PacketHeader>(bytes);
+            ppacket.Header = MessagePackSerializer.Deserialize<PacketHeader>(bytes);
             
-            ppacket.rawData = bytes.Skip(headerSize).ToArray();
+            ppacket.RawData = bytes.Skip(headerSize).ToArray();
 
             return ppacket;
         }

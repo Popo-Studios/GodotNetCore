@@ -7,38 +7,44 @@ using System.Threading.Tasks;
 
 namespace GodotNetCore {
     public interface ISessionCreation {
-        public string name { get; set; }
-        public string? password { get; set; }
-        public byte maxPlayers { get; set; }
-        public bool isPrivate { get; set; }
-        public string authorToken { get; set; }
+        public string Name { get; set; }
+        public string? Password { get; set; }
+        public byte MaxPlayers { get; set; }
+        public bool IsPrivate { get; set; }
+        public string AuthorToken { get; set; }
+    }
+
+    public struct SessionIdentifier {
+        public string SessionHost { get; set; }
+        public UInt16 SessionPort { get; set; }
+        public UInt16 SessionNumber { get; set; }
     }
 
     public interface ISessionInfo {
-        public string name { get; }
-        public string sessionId { get; }
-        public byte maxPlayers { get;}
-        public byte currentPlayers { get; }
-        public bool isPrivate { get; }
-        public bool hasPassword { get; }
-        public string authorName { get; }
+        public string Name { get; }
+        public SessionIdentifier SessionId { get; }
+        public byte MaxPlayers { get;}
+        public byte CurrentPlayers { get; }
+        public bool IsPrivate { get; }
+        public bool HasPassword { get; }
+        public string AuthorName { get; }
     }
 
     public interface ISessionList {
-        public UInt32 sessionCount { get; }
-        public ISessionInfo[] sessionInfoList { get; }
+        public UInt32 SessionCount { get; }
+        public ISessionInfo[] SessionInfoList { get; }
     }
 
     public interface ISessionJoin {
-        public string sessionId { get; set; }
-        public string password { get; set; }
-        public string userToken { get; set; }
+        public SessionIdentifier SessionId { get; set; }
+        public string Password { get; set; }
+        public string UserToken { get; set; }
     }
 
     public interface ISessionResult {
-        public bool success { get; }
-        public byte cause { get; }
-        public ISessionInfo? sessionInfo { get; }
+        public bool Success { get; }
+        public byte Cause { get; }
+        public ISessionInfo? SessionInfo { get; }
     }
 
     public delegate void SessionResultEventHandler(ISessionResult data);
@@ -56,56 +62,56 @@ namespace GodotNetCore {
     }
 
     public static class SessionManager {
-        public static byte sessionChannel { get; set; } = 0;
-        public static PacketFlags sessionFlags { get; set; } = PacketFlags.None;
-        public static ISessionInfo? currentSession { get; private set; } = null;
+        public static byte SessionChannel { get; set; } = 0;
+        public static PacketFlags SessionFlags { get; set; } = PacketFlags.None;
+        public static ISessionInfo? CurrentSession { get; private set; } = null;
 
         public static SessionResultEventHandler? OnSessionJoinResultHandler { get; private set; } = null;
         public static SessionResultEventHandler? OnSessionCreationResultHandler { get; private set; } = null;
         public static SessionResultEventHandler? OnSessionLeaveResultHandler { get; private set; } = null;
 
         public static Task<ISessionResult> CreateNewSession(ISessionCreation info) {
-            if (currentSession != null) {
-                throw new SessionExistsException(currentSession);
+            if (CurrentSession != null) {
+                throw new SessionExistsException(CurrentSession);
             }
 
             var tcs = new TaskCompletionSource<ISessionResult>();
 
             OnSessionCreationResultHandler = (ISessionResult result) => {
                 tcs.SetResult(result);
-                if (result.success) {
-                    currentSession = result.sessionInfo;
+                if (result.Success) {
+                    CurrentSession = result.SessionInfo;
                 }
             };
 
-            Packet packet = PacketUtils.CreatePacket((UInt16)PacketUtils.PredefinedPacketTypeId.CreateSession, info, sessionFlags);
-            NetworkManager.SendPacket(sessionChannel, packet);
+            Packet packet = PacketUtils.CreatePacket((UInt16)PacketUtils.PredefinedPacketTypeId.CreateSession, info, SessionFlags);
+            NetworkManager.SendPacket(SessionChannel, packet);
 
             return tcs.Task;
         }
 
         public static Task<ISessionResult> JoinSession(ISessionJoin info) {
-            if (currentSession != null) {
-                throw new SessionExistsException(currentSession);
+            if (CurrentSession != null) {
+                throw new SessionExistsException(CurrentSession);
             }
 
             var tcs = new TaskCompletionSource<ISessionResult>();
 
             OnSessionJoinResultHandler = (ISessionResult result) => {
                 tcs.SetResult(result);
-                if (result.success) {
-                    currentSession = result.sessionInfo;
+                if (result.Success) {
+                    CurrentSession = result.SessionInfo;
                 }
             };
 
-            Packet packet = PacketUtils.CreatePacket((UInt16)PacketUtils.PredefinedPacketTypeId.JoinSession, info, sessionFlags);
-            NetworkManager.SendPacket(sessionChannel, packet);
+            Packet packet = PacketUtils.CreatePacket((UInt16)PacketUtils.PredefinedPacketTypeId.JoinSession, info, SessionFlags);
+            NetworkManager.SendPacket(SessionChannel, packet);
 
             return tcs.Task;
         }
 
         public static Task<ISessionResult> LeaveSession() {
-            if (currentSession == null) {
+            if (CurrentSession == null) {
                 throw new SessionNotFoundException();
             }
 
@@ -113,13 +119,13 @@ namespace GodotNetCore {
 
             OnSessionLeaveResultHandler = (ISessionResult result) => {
                 tcs.SetResult(result);
-                if (result.success) {
-                    currentSession = null;
+                if (result.Success) {
+                    CurrentSession = null;
                 }
             };
 
-            Packet packet = PacketUtils.CreatePacket((UInt16)PacketUtils.PredefinedPacketTypeId.LeaveSession, sessionFlags);
-            NetworkManager.SendPacket(sessionChannel, packet);
+            Packet packet = PacketUtils.CreatePacket((UInt16)PacketUtils.PredefinedPacketTypeId.LeaveSession, SessionFlags);
+            NetworkManager.SendPacket(SessionChannel, packet);
 
             return tcs.Task;
         }
