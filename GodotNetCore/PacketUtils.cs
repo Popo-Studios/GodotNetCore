@@ -91,7 +91,7 @@ namespace GodotNetCore {
             return ppacket;
         }
 
-        public static T ParseRawData<T>(PacketHeader header, byte[] rawData) where T : notnull {
+        public static T ParseRawData<T>(byte[] rawData) where T : notnull {
             return MessagePackSerializer.Deserialize<T>(rawData);
         }
     }

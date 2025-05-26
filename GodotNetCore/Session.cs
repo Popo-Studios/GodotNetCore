@@ -1,8 +1,5 @@
 ﻿using ENet;
-using MessagePack;
 using System;
-using System.Collections.Generic;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace GodotNetCore {
@@ -11,7 +8,7 @@ namespace GodotNetCore {
         public string? Password { get; set; }
         public byte MaxPlayers { get; set; }
         public bool IsPrivate { get; set; }
-        public string AuthorToken { get; set; }
+        public UInt64 AuthorId { get; set; }
     }
 
     public struct SessionIdentifier {
@@ -38,7 +35,7 @@ namespace GodotNetCore {
     public interface ISessionJoin {
         public SessionIdentifier SessionId { get; set; }
         public string Password { get; set; }
-        public string UserToken { get; set; }
+        public UInt64 UserId { get; set; }
     }
 
     public interface ISessionResult {

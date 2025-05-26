@@ -4,19 +4,18 @@ using System.Threading;
 using System.Collections.Generic;
 using ENet;
 using System.Threading.Tasks;
-using System.Runtime.CompilerServices;
 
 namespace GodotNetCore {
     public delegate void EventHandler(UInt32 data);
     public delegate void PacketReceiveEventHandler(Packet packet, byte channel);
    
     public interface IPacketHandler {
-        void RawHandle(PacketHeader header, byte[] rawData);
+        void RawHandle(byte[] rawData);
     }
 
     public abstract class PacketHandler<T> : IPacketHandler where T : notnull {
-        public void RawHandle(PacketHeader header, byte[] rawData) {
-            T data = PacketUtils.ParseRawData<T>(header, rawData);
+        public void RawHandle(byte[] rawData) {
+            T data = PacketUtils.ParseRawData<T>(rawData);
             Handle(data);
         }
 
@@ -29,12 +28,12 @@ namespace GodotNetCore {
     }
 
     public static class NetworkManager {
-        private static Thread? clientThread = null;
-        private static volatile bool clientRunning = false;
-        private static volatile UInt32 disconnectCause = 0;
-        private static int timeout { get; set; } = 15;
+        private static Thread? ClientThread = null;
+        private static volatile bool ClientRunning = false;
+        public static volatile UInt32 DisconnectCause = 0;
+        private static int Timeout { get; set; } = 15;
 
-        private static ConcurrentQueue<QueuedPacket> packetQueue = new ConcurrentQueue<QueuedPacket>();
+        private readonly static ConcurrentQueue<QueuedPacket> packetQueue = new ConcurrentQueue<QueuedPacket>();
 
         public static EventHandler? OnConnectHandler { get; set; }
         public static EventHandler? OnDisconnectHandler { get; set; }
@@ -104,90 +103,89 @@ namespace GodotNetCore {
         }
 
         private static void CreateClientThread(string hostName, UInt16 port, ref TaskCompletionSource<bool> tcs) {
-            clientRunning = true;
-            using (Host client = new Host()) {
-                Address address = new Address();
+            ClientRunning = true;
+            using Host client = new Host();
+            Address address = new Address();
 
-                address.SetHost(hostName);
-                address.Port = port;
-                client.Create();
+            address.SetHost(hostName);
+            address.Port = port;
+            client.Create();
 
-                Peer peer = client.Connect(address);
+            Peer peer = client.Connect(address);
 
-                Event netEvent;
+            Event netEvent;
 
-                while (clientRunning) {
-                    bool polled = false;
+            while (ClientRunning) {
+                bool polled = false;
 
-                    while (!polled) {
-                        if (!clientRunning) {
-                            peer.Disconnect(disconnectCause);
-                            OnDisconnectHandler?.Invoke(disconnectCause);
+                while (!polled) {
+                    if (!ClientRunning) {
+                        peer.Disconnect(DisconnectCause);
+                        OnDisconnectHandler?.Invoke(DisconnectCause);
+                        break;
+                    }
+
+                    if (client.CheckEvents(out netEvent) <= 0) {
+                        if (client.Service(Timeout, out netEvent) <= 0) break;
+
+                        polled = true;
+                    }
+
+                    switch (netEvent.Type) {
+                        case EventType.None: break;
+                        case EventType.Connect:
+                            tcs.SetResult(true);
+                            OnConnectHandler?.Invoke(netEvent.Data);
                             break;
-                        }
+                        case EventType.Disconnect:
+                            OnDisconnectHandler?.Invoke(netEvent.Data);
+                            break;
+                        case EventType.Timeout:
+                            tcs.SetResult(false);
+                            OnTimeoutHandler?.Invoke(netEvent.Data);
+                            break;
+                        case EventType.Receive:
+                            OnPacketReceiveHandler?.Invoke(netEvent.Packet, netEvent.ChannelID);
 
-                        if (client.CheckEvents(out netEvent) <= 0) {
-                            if (client.Service(timeout, out netEvent) <= 0) break;
+                            ParsedPacket ppacket = PacketUtils.ParsePacket(netEvent.Packet);
+                            packetHandlers[ppacket.Header.PacketTypeId].ForEach((IPacketHandler handler) => {
+                                handler.RawHandle(ppacket.RawData);
+                            });
 
-                            polled = true;
-                        }
+                            netEvent.Packet.Dispose();
+                            break;
+                    }
 
-                        switch (netEvent.Type) {
-                            case EventType.None: break;
-                            case EventType.Connect:
-                                tcs.SetResult(true);
-                                OnConnectHandler?.Invoke(netEvent.Data);
-                                break;
-                            case EventType.Disconnect:
-                                OnDisconnectHandler?.Invoke(netEvent.Data);
-                                break;
-                            case EventType.Timeout:
-                                tcs.SetResult(false);
-                                OnTimeoutHandler?.Invoke(netEvent.Data);
-                                break;
-                            case EventType.Receive:
-                                OnPacketReceiveHandler?.Invoke(netEvent.Packet, netEvent.ChannelID);
-
-                                ParsedPacket ppacket = PacketUtils.ParsePacket(netEvent.Packet);
-                                packetHandlers[ppacket.Header.PacketTypeId].ForEach((IPacketHandler handler) => {
-                                    handler.RawHandle(ppacket.Header, ppacket.RawData);
-                                });
-
-                                netEvent.Packet.Dispose();
-                                break;
-                        }
-
-                        while (!packetQueue.IsEmpty) {
-                            if (packetQueue.TryDequeue(out QueuedPacket packet)) {
-                                peer.Send(packet.channel, ref packet.packet);
-                            } else break;
-                        }
-                    }  
+                    while (!packetQueue.IsEmpty) {
+                        if (packetQueue.TryDequeue(out QueuedPacket packet)) {
+                            peer.Send(packet.channel, ref packet.packet);
+                        } else break;
+                    }
                 }
-                client.Flush();
             }
+            client.Flush();
         }
 
         public static Task<bool> Connect(string hostName, UInt16 port) {
             var tcs = new TaskCompletionSource<bool>();
 
             new Thread(() => {
-                if (clientThread != null) {
-                    clientRunning = false;
-                    clientThread.Join();
+                if (ClientThread != null) {
+                    ClientRunning = false;
+                    ClientThread.Join();
                 }
 
-                clientThread = new Thread(() => CreateClientThread(hostName, port, ref tcs));
-                clientThread.Start();
+                ClientThread = new Thread(() => CreateClientThread(hostName, port, ref tcs));
+                ClientThread.Start();
             }).Start();
 
             return tcs.Task;
         }
 
         public static void Disconnect(UInt32 cause = 0) {
-            if (clientThread != null) {
-                disconnectCause = cause;
-                clientRunning = false;
+            if (ClientThread != null) {
+                DisconnectCause = cause;
+                ClientRunning = false;
             }
         }
     }
