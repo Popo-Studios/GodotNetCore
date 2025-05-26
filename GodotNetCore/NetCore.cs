@@ -3,18 +3,20 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Collections.Generic;
 using ENet;
+using System.Threading.Tasks;
+using System.Runtime.CompilerServices;
 
 namespace GodotNetCore {
     public delegate void EventHandler(UInt32 data);
     public delegate void PacketReceiveEventHandler(Packet packet, byte channel);
-
+   
     public interface IPacketHandler {
-        void RawHandle(byte[] rawData);
+        void RawHandle(PacketHeader header, byte[] rawData);
     }
 
     public abstract class PacketHandler<T> : IPacketHandler where T : notnull {
-        public void RawHandle(byte[] rawData) {
-            T data = PacketUtils.ParseRawData<T>(rawData);
+        public void RawHandle(PacketHeader header, byte[] rawData) {
+            T data = PacketUtils.ParseRawData<T>(header, rawData);
             Handle(data);
         }
 
@@ -34,14 +36,14 @@ namespace GodotNetCore {
 
         private static ConcurrentQueue<QueuedPacket> packetQueue = new ConcurrentQueue<QueuedPacket>();
 
-        private static EventHandler? OnConnectHandler { get; set; }
-        private static EventHandler? OnDisconnectHandler { get; set; }
-        private static EventHandler? OnTimeoutHandler { get; set; }
-        private static PacketReceiveEventHandler? OnPacketReceiveHandler { get; set; }
+        public static EventHandler? OnConnectHandler { get; set; }
+        public static EventHandler? OnDisconnectHandler { get; set; }
+        public static EventHandler? OnTimeoutHandler { get; set; }
+        public static PacketReceiveEventHandler? OnPacketReceiveHandler { get; set; }
 
         private static readonly UInt16 MaxPacketTypeId = UInt16.MaxValue;
 
-        private readonly static List<IPacketHandler>[] packetHandlers = new List<IPacketHandler>[MaxPacketTypeId];
+        private readonly static List<IPacketHandler>[] packetHandlers = new List<IPacketHandler>[MaxPacketTypeId + 1];
 
         public static void Activate() {
             Library.Initialize();
@@ -53,6 +55,9 @@ namespace GodotNetCore {
             OnPacketReceiveHandler = null;
 
             Array.Fill(packetHandlers, null);
+
+            RegisterPacketHandler((UInt16)PacketUtils.PredefinedPacketTypeId.CreateSession, new CreateSessionPacketHandler());
+            RegisterPacketHandler((UInt16)PacketUtils.PredefinedPacketTypeId.JoinSession, new JoinSessionPacketHandler());
         }
 
         public static void Deactivate() {
@@ -60,7 +65,7 @@ namespace GodotNetCore {
         }
 
         public static bool RegisterPacketHandler<T>(UInt16 packetTypeId, PacketHandler<T> handler) where T : notnull {
-            if (!packetHandlers[packetTypeId].Contains(handler)) {
+            if (packetHandlers[packetTypeId] != null && packetHandlers[packetTypeId].Contains(handler)) {
                 packetHandlers[packetTypeId].Add(handler);
             }
             return true;
@@ -98,7 +103,7 @@ namespace GodotNetCore {
             packetQueue.Enqueue(qpacket);
         }
 
-        private static void CreateClientThread(string hostName, UInt16 port) {
+        private static void CreateClientThread(string hostName, UInt16 port, ref TaskCompletionSource<bool> tcs) {
             clientRunning = true;
             using (Host client = new Host()) {
                 Address address = new Address();
@@ -117,7 +122,7 @@ namespace GodotNetCore {
                     while (!polled) {
                         if (!clientRunning) {
                             peer.Disconnect(disconnectCause);
-                            if (OnDisconnectHandler != null) OnDisconnectHandler(disconnectCause);
+                            OnDisconnectHandler?.Invoke(disconnectCause);
                             break;
                         }
 
@@ -129,21 +134,23 @@ namespace GodotNetCore {
 
                         switch (netEvent.Type) {
                             case EventType.None: break;
-                            case EventType.Connect: 
-                                if (OnConnectHandler != null) OnConnectHandler(netEvent.Data);  
+                            case EventType.Connect:
+                                tcs.SetResult(true);
+                                OnConnectHandler?.Invoke(netEvent.Data);
                                 break;
                             case EventType.Disconnect:
-                                if (OnDisconnectHandler != null) OnDisconnectHandler(netEvent.Data);
+                                OnDisconnectHandler?.Invoke(netEvent.Data);
                                 break;
                             case EventType.Timeout:
-                                if (OnTimeoutHandler != null) OnTimeoutHandler(netEvent.Data);
+                                tcs.SetResult(false);
+                                OnTimeoutHandler?.Invoke(netEvent.Data);
                                 break;
                             case EventType.Receive:
-                                if (OnPacketReceiveHandler != null) OnPacketReceiveHandler(netEvent.Packet, netEvent.ChannelID);
+                                OnPacketReceiveHandler?.Invoke(netEvent.Packet, netEvent.ChannelID);
 
                                 ParsedPacket ppacket = PacketUtils.ParsePacket(netEvent.Packet);
-                                packetHandlers[ppacket.packetTypeId].ForEach((IPacketHandler handler) => {
-                                    handler.RawHandle(ppacket.rawData);
+                                packetHandlers[ppacket.Header.PacketTypeId].ForEach((IPacketHandler handler) => {
+                                    handler.RawHandle(ppacket.Header, ppacket.RawData);
                                 });
 
                                 netEvent.Packet.Dispose();
@@ -153,7 +160,7 @@ namespace GodotNetCore {
                         while (!packetQueue.IsEmpty) {
                             if (packetQueue.TryDequeue(out QueuedPacket packet)) {
                                 peer.Send(packet.channel, ref packet.packet);
-                            } else break;                            
+                            } else break;
                         }
                     }  
                 }
@@ -161,16 +168,20 @@ namespace GodotNetCore {
             }
         }
 
-        public static void Connect(string hostName, UInt16 port) {
+        public static Task<bool> Connect(string hostName, UInt16 port) {
+            var tcs = new TaskCompletionSource<bool>();
+
             new Thread(() => {
                 if (clientThread != null) {
                     clientRunning = false;
                     clientThread.Join();
                 }
 
-                clientThread = new Thread(() => CreateClientThread(hostName, port));
+                clientThread = new Thread(() => CreateClientThread(hostName, port, ref tcs));
                 clientThread.Start();
             }).Start();
+
+            return tcs.Task;
         }
 
         public static void Disconnect(UInt32 cause = 0) {
