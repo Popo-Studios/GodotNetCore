@@ -91,7 +91,7 @@ namespace GodotNetCore {
             }
         }
 
-        public static void sendPacket(byte channel, Packet packet) {
+        public static void SendPacket(byte channel, Packet packet) {
             QueuedPacket qpacket;
             qpacket.channel = channel;
             qpacket.packet = packet;

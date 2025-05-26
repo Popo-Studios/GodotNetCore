@@ -19,7 +19,8 @@ namespace GodotNetCore {
             idToTypeName.Add(typeId, typeName);
         }
 
-        public static UInt16? GetPacketTypeId(string typeName) {
+        public static UInt16? GetPacketTypeId(string typeName)
+        {
             if (typeNameToId.TryGetValue(typeName, out var typeId)) return typeId;
             else return null;
         }
@@ -41,7 +42,7 @@ namespace GodotNetCore {
             return packet;
         }
 
-        public static Packet createPacket<T>(string packetTypeName, T data) where T : notnull {
+        public static Packet CreatePacket<T>(string packetTypeName, T data) where T : notnull {
             if (typeNameToId.TryGetValue(packetTypeName, out var typeName)) {
                 return CreatePacket(typeName, data);
             } else {
