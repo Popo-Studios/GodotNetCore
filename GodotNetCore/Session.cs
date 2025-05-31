@@ -1,133 +1,210 @@
 ﻿using ENet;
 using MessagePack;
 using System;
-using System.Collections.Generic;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace GodotNetCore {
-    public interface ISessionCreation {
+    [MessagePackObject]
+    public struct SessionCreationOption {
+        [Key(0)]
         public string Name { get; set; }
+        [Key(1)]
         public string? Password { get; set; }
+        [Key(2)]
         public byte MaxPlayers { get; set; }
+        [Key(3)]
         public bool IsPrivate { get; set; }
-        public string AuthorToken { get; set; }
+        [Key(4)]
+        public UserIdentifier UserIdentifier { get; set; }
+        [Key(5)]
+        public string SessionType { get; set; }
     }
 
+    [MessagePackObject]
     public struct SessionIdentifier {
-        public string SessionHost { get; set; }
+        [Key(0)]
         public UInt16 SessionPort { get; set; }
+        [Key(1)]
         public UInt16 SessionNumber { get; set; }
     }
 
-    public interface ISessionInfo {
-        public string Name { get; }
-        public SessionIdentifier SessionId { get; }
-        public byte MaxPlayers { get;}
-        public byte CurrentPlayers { get; }
-        public bool IsPrivate { get; }
-        public bool HasPassword { get; }
-        public string AuthorName { get; }
+    [MessagePackObject]
+    public struct SessionInfo {
+        [Key(0)]
+        public string Name { get; set; }
+        [Key(1)]
+        public SessionIdentifier Identifier { get; set; }
+        [Key(2)]
+        public byte MaxPlayers { get; set; }
+        [Key(3)]
+        public byte CurrentPlayers { get; set; }
+        [Key(4)]
+        public bool IsPrivate { get; set; }
+        [Key(5)]
+        public bool HasPassword { get; set; }
+        [Key(6)]
+        public string AuthorName { get; set; }
+        [Key(7)]
+        public string sessionType { get; set; }
     }
 
-    public interface ISessionList {
-        public UInt32 SessionCount { get; }
-        public ISessionInfo[] SessionInfoList { get; }
+    [MessagePackObject]
+    public struct SessionListResult {
+        [Key(0)]
+        public UInt32 TotalSessionCount { get; set; }
+        [Key(1)]
+        public SessionInfo[] SessionInfoList { get; set; }
     }
 
-    public interface ISessionJoin {
-        public SessionIdentifier SessionId { get; set; }
-        public string Password { get; set; }
-        public string UserToken { get; set; }
+    [MessagePackObject]
+    public struct SessionListOption {
+        [Key(0)]
+        public string? NameFilter { get; set; }
+        [Key(1)]
+        public UInt32 Page { get; set; }
+        [Key(2)]
+        public UInt32 SessionPerPage { get; set; }
+        [Key(3)]
+        public string SessionType { get; set; }
     }
 
-    public interface ISessionResult {
-        public bool Success { get; }
-        public byte Cause { get; }
-        public ISessionInfo? SessionInfo { get; }
+    [MessagePackObject]
+    public struct SessionJoinOption {
+        [Key(0)]
+        public UserIdentifier UserIdentifier { get; set; }
+        [Key(1)]
+        public UInt16 SessionNumber { get; set; }
+        [Key(2)]
+        public string? Password { get; set; }
     }
 
-    public delegate void SessionResultEventHandler(ISessionResult data);
+    [MessagePackObject]
+    public struct SessionCreationResult {
+        [Key(0)]
+        public bool Success { get; set; }
+        [Key(1)]
+        public byte ErrorCode { get; set; }
+        [Key(2)]
+        public SessionInfo? SessionInfo { get; set; }
+    }
 
-    public class CreateSessionPacketHandler: PacketHandler<ISessionResult> {
-        protected override void Handle(ISessionResult data) {
+    [MessagePackObject]
+    public struct SessionJoinResult {
+        [Key(0)]
+        public bool Success { get; set; }
+        [Key(1)]
+        public byte ErrorCode { get; set; }
+    }
+
+    public delegate void SessionCreationResultEventHandler(SessionCreationResult data);
+    public delegate void SessionJoinResultEventHandler(SessionJoinResult data);
+    public delegate void SessionListResultEventHandler(SessionListResult data);
+
+    public class CreateSessionPacketHandler: PacketHandler<SessionCreationResult> {
+        protected override void Handle(SessionCreationResult data) {
             SessionManager.OnSessionCreationResultHandler?.Invoke(data);
         }
     }
 
-    public class JoinSessionPacketHandler: PacketHandler<ISessionResult> {
-        protected override void Handle(ISessionResult data) {
+    public class JoinSessionPacketHandler: PacketHandler<SessionJoinResult> {
+        protected override void Handle(SessionJoinResult data) {
             SessionManager.OnSessionJoinResultHandler?.Invoke(data);
+        }
+    }
+
+    public class SessionListPacketHandler : PacketHandler<SessionListResult> {
+        protected override void Handle(SessionListResult data) {
+            SessionManager.OnSessionListHandler?.Invoke(data);
         }
     }
 
     public static class SessionManager {
         public static byte SessionChannel { get; set; } = 0;
-        public static PacketFlags SessionFlags { get; set; } = PacketFlags.None;
-        public static ISessionInfo? CurrentSession { get; private set; } = null;
+        public static PacketFlags SessionFlags { get; set; } = PacketFlags.Reliable;
+        public static SessionInfo? CurrentSession { get; private set; } = null;
 
-        public static SessionResultEventHandler? OnSessionJoinResultHandler { get; private set; } = null;
-        public static SessionResultEventHandler? OnSessionCreationResultHandler { get; private set; } = null;
-        public static SessionResultEventHandler? OnSessionLeaveResultHandler { get; private set; } = null;
+        public static SessionJoinResultEventHandler? OnSessionJoinResultHandler { get; private set; } = null;
+        public static SessionCreationResultEventHandler? OnSessionCreationResultHandler { get; private set; } = null;
+        public static SessionListResultEventHandler? OnSessionListHandler { get; private set; } = null;
 
-        public static Task<ISessionResult> CreateNewSession(ISessionCreation info) {
+        /**
+         * <summary>Create a new session</summary>
+         */
+        public static async Task<SessionCreationResult> CreateNewSession(SessionCreationOption opt) {
             if (CurrentSession != null) {
-                throw new SessionExistsException(CurrentSession);
+                throw new SessionExistsException((SessionInfo)CurrentSession);
             }
 
-            var tcs = new TaskCompletionSource<ISessionResult>();
-
-            OnSessionCreationResultHandler = (ISessionResult result) => {
-                tcs.SetResult(result);
-                if (result.Success) {
-                    CurrentSession = result.SessionInfo;
-                }
-            };
-
-            Packet packet = PacketUtils.CreatePacket((UInt16)PacketUtils.PredefinedPacketTypeId.CreateSession, info, SessionFlags);
-            NetworkManager.SendPacket(SessionChannel, packet);
-
-            return tcs.Task;
-        }
-
-        public static Task<ISessionResult> JoinSession(ISessionJoin info) {
-            if (CurrentSession != null) {
-                throw new SessionExistsException(CurrentSession);
+            string serverType = await NetworkManager.GetConnectedServerType();
+            if (serverType != "MAIN_SERVER") {
+                throw new InvalidOperationException("This method should be processed when connected with main server.");
             }
 
-            var tcs = new TaskCompletionSource<ISessionResult>();
+            var tcs = new TaskCompletionSource<SessionCreationResult>();
 
-            OnSessionJoinResultHandler = (ISessionResult result) => {
+            OnSessionCreationResultHandler = (SessionCreationResult result) => {
                 tcs.SetResult(result);
-                if (result.Success) {
-                    CurrentSession = result.SessionInfo;
-                }
             };
 
-            Packet packet = PacketUtils.CreatePacket((UInt16)PacketUtils.PredefinedPacketTypeId.JoinSession, info, SessionFlags);
+            Packet packet = PacketUtils.CreatePacket((UInt16)PacketUtils.PredefinedPacketTypeId.CreateSession, opt, SessionFlags);
             NetworkManager.SendPacket(SessionChannel, packet);
 
-            return tcs.Task;
+            return await tcs.Task;
         }
 
-        public static Task<ISessionResult> LeaveSession() {
+        public static async Task<SessionJoinResult> JoinSession(SessionInfo info, SessionJoinOption opt) {
+            if (CurrentSession != null) {
+                throw new SessionExistsException((SessionInfo)CurrentSession);
+            }
+
+            string serverType = await NetworkManager.GetConnectedServerType();
+            if (serverType != "SESSION_SERVER") {
+                throw new InvalidOperationException("This method should be processed when connected with session server");
+            }
+
+            var tcs = new TaskCompletionSource<SessionJoinResult>();
+
+            OnSessionJoinResultHandler = (SessionJoinResult result) => {
+                if (result.Success) {
+                    CurrentSession = info;
+                }
+                tcs.SetResult(result);
+            };
+       
+            Packet packet = PacketUtils.CreatePacket((UInt16)PacketUtils.PredefinedPacketTypeId.JoinSession, opt, SessionFlags);
+            NetworkManager.SendPacket(SessionChannel, packet);
+            return await tcs.Task;
+        }
+
+        public static async Task<SessionListResult> GetSessionList(SessionListOption option) {
+            string serverType = await NetworkManager.GetConnectedServerType();
+            if (serverType != "MAIN_SERVER") {
+                throw new InvalidOperationException("This method should be processed when connected with main server.");
+            }
+
+            var tcs = new TaskCompletionSource<SessionListResult>();
+            OnSessionListHandler = (SessionListResult data) => {
+                tcs.SetResult(data);
+            };
+            Packet packet = PacketUtils.CreatePacket((UInt16)PacketUtils.PredefinedPacketTypeId.GetSessionList, option, SessionFlags);
+            NetworkManager.SendPacket(SessionChannel, packet);
+            return await tcs.Task;
+        }
+
+        public static async void LeaveSession() {
             if (CurrentSession == null) {
                 throw new SessionNotFoundException();
             }
 
-            var tcs = new TaskCompletionSource<ISessionResult>();
+            string serverType = await NetworkManager.GetConnectedServerType();
+            if (serverType != "SESSION_SERVER") {
+                throw new InvalidOperationException("This method should be processed when connected with session server.");
+            }
 
-            OnSessionLeaveResultHandler = (ISessionResult result) => {
-                tcs.SetResult(result);
-                if (result.Success) {
-                    CurrentSession = null;
-                }
-            };
-
-            Packet packet = PacketUtils.CreatePacket((UInt16)PacketUtils.PredefinedPacketTypeId.LeaveSession, SessionFlags);
+            Packet packet = PacketUtils.CreateEmptyPacket("LeaveSession", SessionFlags);
             NetworkManager.SendPacket(SessionChannel, packet);
 
-            return tcs.Task;
+            CurrentSession = null;
         }
     }
 }
