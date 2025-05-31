@@ -100,7 +100,7 @@ namespace GodotNetCore {
 
         private readonly static List<IPacketHandler>[] packetHandlers = new List<IPacketHandler>[MaxPacketTypeId + 1];
 
-        public static void Activate() {
+        static NetworkManager() {
             Library.Initialize();
             packetQueue.Clear();
 
