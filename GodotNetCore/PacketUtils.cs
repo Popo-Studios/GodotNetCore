@@ -24,13 +24,18 @@ namespace GodotNetCore {
         public enum PredefinedPacketTypeId: UInt16 {
             CreateSession = UInt16.MaxValue,
             JoinSession = UInt16.MaxValue - 1,
-            LeaveSession = UInt16.MaxValue - 2
+            LeaveSession = UInt16.MaxValue - 2,
+            Login = UInt16.MaxValue - 3,
+            GetServerType = UInt16.MaxValue - 4,
+            GetSessionList = UInt16.MaxValue - 5,
         }             
 
         static PacketUtils() {
             RegisterPacketType((UInt16)PredefinedPacketTypeId.CreateSession, "CreateSession");
             RegisterPacketType((UInt16)PredefinedPacketTypeId.JoinSession, "JoinSession");
             RegisterPacketType((UInt16)PredefinedPacketTypeId.LeaveSession, "LeaveSession");
+            RegisterPacketType((UInt16)PredefinedPacketTypeId.Login, "Login");
+            RegisterPacketType((UInt16)PredefinedPacketTypeId.GetServerType, "GetServerType");
         }
 
         public static void RegisterPacketType(UInt16 typeId, string typeName) {
@@ -46,6 +51,27 @@ namespace GodotNetCore {
         public static string? GetPacketTypeName(UInt16 typeId) {
             if (idToTypeName.TryGetValue(typeId, out var typeName)) return typeName;
             else return null;
+        }
+
+        public static Packet CreateEmptyPacket(UInt16 packetType, PacketFlags flags = PacketFlags.None, Int64? timestamp = null) {
+            List<byte> bytes = new List<byte>();
+            PacketHeader header;
+            header.PacketTypeId = packetType;
+            header.Timestamp = timestamp ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            byte[] serializedHeader = MessagePackSerializer.Serialize(header);
+            bytes.AddRange(BitConverter.GetBytes(serializedHeader.Length));
+            bytes.AddRange(serializedHeader);
+            Packet packet = default;
+            packet.Create(bytes.ToArray(), flags);
+            return packet;
+        }
+
+        public static Packet CreateEmptyPacket(string packetTypeName, PacketFlags flags = PacketFlags.None, Int64? timestamp = null) {
+            if (typeNameToId.TryGetValue(packetTypeName, out var typeId)) {
+                return CreateEmptyPacket(typeId, flags, timestamp);
+            } else {
+                throw new UnknownPacketTypeException(packetTypeName);
+            }
         }
 
         public static Packet CreatePacket<T>(UInt16 packetType, T data, PacketFlags flags = PacketFlags.None, Int64? timestamp = null) where T : notnull {

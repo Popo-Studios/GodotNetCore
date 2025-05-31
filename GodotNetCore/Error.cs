@@ -1,6 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace GodotNetCore {
     public class UnknownPacketTypeException : Exception {
@@ -8,8 +6,8 @@ namespace GodotNetCore {
         }
     }
     public class SessionExistsException : Exception {
-        public SessionExistsException(ISessionInfo info)
-            : base($"Session already exists (Name: {info.Name}, Id: {info.SessionId.SessionHost}:{info.SessionId.SessionPort}:{info.SessionId.SessionNumber})") {
+        public SessionExistsException(SessionInfo info)
+            : base($"Session already exists (Name: {info.Name}, Id: {info.Identifier.SessionPort}:{info.Identifier.SessionNumber})") {
         }
     }
 
