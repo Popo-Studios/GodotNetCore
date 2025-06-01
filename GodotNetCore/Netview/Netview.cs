@@ -9,11 +9,11 @@ namespace GodotNetCore {
 
         private readonly Dictionary<UInt16, object> handlersDict = new();
 
-        private NetviewMaster? netviewMaster;
+        private NetviewManager? netviewMaster;
 
         public void Initialize(Guid guid, bool isMain) {
             this.guid = guid;
-            netviewMaster = NetviewMaster.Instance;
+            netviewMaster = NetviewManager.Instance;
             netviewMaster!.netviewsDict.Add(guid, this);
 
             this.isMain = isMain;

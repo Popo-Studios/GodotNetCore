@@ -12,8 +12,8 @@ namespace GodotNetCore {
         LoadNetview = 40000,
     }
 
-    public partial class NetviewMaster : Node {
-        public static NetviewMaster? Instance { get; private set; }
+    public partial class NetviewManager : Node {
+        public static NetviewManager? Instance { get; private set; }
 
         public readonly Dictionary<Guid, Netview> netviewsDict = new();
         private readonly HashSet<UInt16> registeredPacketTypeId = new();
@@ -27,7 +27,7 @@ namespace GodotNetCore {
             );
         }
 
-        public Node? LoadNetview(LoadNetviewPacket data) {
+        private Node? LoadNetview(LoadNetviewPacket data) {
             if (!ResourceLoader.Exists(data.path))
                 return null;
 
@@ -72,7 +72,7 @@ namespace GodotNetCore {
                 }
             }
 
-            return netview;
+            return instance;
         }
 
         /// <summary>
@@ -106,8 +106,7 @@ namespace GodotNetCore {
             UInt16 packetTypeId = packetTypeId;
 
             protected override void Handle(NetviewPacket<T> packet) {
-                NetviewMaster netviewMaster = Instance!;
-                if (!netviewMaster.netviewsDict.TryGetValue(packet.guid, out var netview))
+                if (!Instance!.netviewsDict.TryGetValue(packet.guid, out var netview))
                     return;
 
                 netview.Handle<T>(packetTypeId, packet.data);

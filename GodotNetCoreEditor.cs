@@ -6,12 +6,12 @@ using System;
 public partial class GodotNetCoreEditor : EditorPlugin
 {
 	public override void _EnterTree() {
-		AddAutoloadSingleton("NetviewMaster", "res://addons/GodotNetCore/GodotNetCore/Netview/NetviewMaster.cs");
+		AddAutoloadSingleton("NetviewManager", "res://addons/GodotNetCore/GodotNetCore/Netview/NetviewManager.cs");
 	}
 
 	public override void _ExitTree()
 	{
-		RemoveAutoloadSingleton("NetviewMaster");
+		RemoveAutoloadSingleton("NetviewManager");
 	}
 }
 #endif
