@@ -2,33 +2,30 @@ using System;
 using System.Collections.Generic;
 using ENet;
 using MessagePack;
+using Godot;
 
 namespace GodotNetCore {
     [MessagePackObject]
-    public struct LoadNetviewPacket(string path, Guid guid) {
+    public struct LoadNetviewPacket(string path, Guid? guid, Guid? parentId = null, Vector2? pos = null) {
         [Key(0)]
         public string path = path;
 
         [Key(1)]
-        public Guid guid = guid;
-    }
+        public Guid? guid = guid;
 
-    public interface INetviewPacket<T> {
-        public string NetviewId { get; set; }
-        public string Address { get; set; }
+        [Key(2)]
+        public Guid? parentId = parentId;
 
-        public T Value { get; set; }
+        [Key(3)]
+        public Vector2? pos = pos;
     }
 
     [MessagePackObject]
-    public struct NetviewIntPacket : INetviewPacket<Int32> {
+    public struct NetviewPacket<T>(Guid guid, T data) {
         [Key(0)]
-        public string NetviewId { get; set; }
+        public Guid guid = guid;
 
         [Key(1)]
-        public string Address { get; set; }
-
-        [Key(2)]
-        public Int32 Value { get; set; }
+        public T data = data;
     }
 }
