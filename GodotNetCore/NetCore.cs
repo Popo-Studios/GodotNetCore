@@ -221,53 +221,63 @@ namespace GodotNetCore {
 
             Peer peer = client.Connect(address);
 
+            bool connected = false;
             Event netEvent;
+            bool checkEvent;
 
             while (ClientRunning) {
+                checkEvent = true;
+
                 if (client.CheckEvents(out netEvent) <= 0) {
                     if (client.Service(Timeout, out netEvent) <= 0)
-                        continue;
+                        checkEvent = false;
                 }
 
-                switch (netEvent.Type) {
-                    case EventType.None:
-                        break;
+                if (checkEvent) {
+                    switch (netEvent.Type) {
+                        case EventType.None:
+                            break;
 
-                    case EventType.Connect:
-                        tcs.SetResult(true);
-                        OnConnectHandler?.Invoke(netEvent.Data);
-                        break;
+                        case EventType.Connect:
+                            tcs.SetResult(true);
+                            connected = true;
+                            OnConnectHandler?.Invoke(netEvent.Data);
+                            break;
 
-                    case EventType.Disconnect:
-                        OnDisconnectHandler?.Invoke(netEvent.Data);
-                        ClientRunning = false;
-                        break;
+                        case EventType.Disconnect:
+                            OnDisconnectHandler?.Invoke(netEvent.Data);
+                            ClientRunning = false;
+                            break;
 
-                    case EventType.Timeout:
-                        if (!tcs.Task.IsCompleted)
-                            tcs.SetResult(false);
-                        OnTimeoutHandler?.Invoke(netEvent.Data);
-                        ClientRunning = false;
-                        break;
+                        case EventType.Timeout:
+                            if (!tcs.Task.IsCompleted)
+                                tcs.SetResult(false);
+                            OnTimeoutHandler?.Invoke(netEvent.Data);
+                            ClientRunning = false;
+                            break;
 
-                    case EventType.Receive:
-                        OnPacketReceiveHandler?.Invoke(netEvent.Packet, netEvent.ChannelID);
+                        case EventType.Receive:
+                            OnPacketReceiveHandler?.Invoke(netEvent.Packet, netEvent.ChannelID);
 
-                        ParsedPacket ppacket = PacketUtils.ParsePacket(netEvent.Packet);
-                        if (packetHandlers[ppacket.Header.PacketTypeId] != null) {
-                            packetHandlers[ppacket.Header.PacketTypeId].ForEach(handler => {
-                                handler.RawHandle(ppacket.RawData);
-                            });
+                            ParsedPacket ppacket = PacketUtils.ParsePacket(netEvent.Packet);
+                            if (packetHandlers[ppacket.Header.PacketTypeId] != null) {
+                                packetHandlers[ppacket.Header.PacketTypeId].ForEach(handler => {
+                                    handler.RawHandle(ppacket.RawData);
+                                });
+                            }
+
+                            netEvent.Packet.Dispose();
+                            break;
+                    }
+                }
+
+                if (connected) {
+                    while (!packetQueue.IsEmpty) {
+                        if (packetQueue.TryDequeue(out QueuedPacket packet)) {
+                            peer.Send(packet.channel, ref packet.packet);
                         }
-
-                        netEvent.Packet.Dispose();
-                        break;
-                }
-
-                while (!packetQueue.IsEmpty) {
-                    if (packetQueue.TryDequeue(out QueuedPacket packet)) {
-                        peer.Send(packet.channel, ref packet.packet);
-                    } else break;
+                        else break;
+                    }
                 }
             }
 
