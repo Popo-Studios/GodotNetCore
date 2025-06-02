@@ -24,18 +24,17 @@ namespace GodotNetCore {
         public enum PredefinedPacketTypeId: UInt16 {
             CreateSession = UInt16.MaxValue,
             JoinSession = UInt16.MaxValue - 1,
-            LeaveSession = UInt16.MaxValue - 2,
-            Login = UInt16.MaxValue - 3,
-            GetServerType = UInt16.MaxValue - 4,
-            GetSessionList = UInt16.MaxValue - 5,
+            Login = UInt16.MaxValue - 2,
+            GetServerType = UInt16.MaxValue - 3,
+            GetSessionList = UInt16.MaxValue - 4,
         }             
 
         static PacketUtils() {
             RegisterPacketType((UInt16)PredefinedPacketTypeId.CreateSession, "CreateSession");
             RegisterPacketType((UInt16)PredefinedPacketTypeId.JoinSession, "JoinSession");
-            RegisterPacketType((UInt16)PredefinedPacketTypeId.LeaveSession, "LeaveSession");
             RegisterPacketType((UInt16)PredefinedPacketTypeId.Login, "Login");
             RegisterPacketType((UInt16)PredefinedPacketTypeId.GetServerType, "GetServerType");
+            RegisterPacketType((UInt16)PredefinedPacketTypeId.GetSessionList, "GetSessionList");
         }
 
         public static void RegisterPacketType(UInt16 typeId, string typeName) {

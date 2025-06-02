@@ -1,6 +1,5 @@
 ﻿using GodotNetCore;
 
-NetworkManager.Activate();
 Console.WriteLine("NetworkManager activated.");
 bool res = await NetworkManager.Connect("127.0.0.1", 12345);
 
@@ -28,11 +27,10 @@ if (lr.Success && lr.UserIdentifier != null) {
         });
 
         Console.WriteLine($"join: {jr.Success}");
-        SessionManager.LeaveSession();
+
+        NetworkManager.Disconnect();
 
         res = await NetworkManager.Connect("127.0.0.1", 12345);
-
-        Thread.Sleep(5000);
 
         SessionListOption option = default;
         option.Page = 1; option.SessionPerPage = 10; option.SessionType = "";
