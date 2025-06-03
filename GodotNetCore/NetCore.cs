@@ -333,6 +333,8 @@ namespace GodotNetCore {
             peers[latestIndex]?.DisconnectNow(cause);
             clients[latestIndex]?.Flush();
 
+            ClientRunning[latestIndex] = false;
+
             DisconnectCause = cause;
         }
     }
