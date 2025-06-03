@@ -229,6 +229,12 @@ namespace GodotNetCore {
             bool checkEvent;
 
             while (ClientRunning[idx]) {
+                while (packetQueues[idx].Count > 0) {
+                    if (packetQueues[idx].TryTake(out QueuedPacket packet)) {
+                        peers[idx]?.Send(packet.channel, ref packet.packet);
+                    } else break;
+                }
+
                 if (clients[idx]!.CheckEvents(out netEvent) <= 0) {
                     if (clients[idx]!.Service(Timeout, out netEvent) <= 0)
                         continue;
@@ -270,12 +276,6 @@ namespace GodotNetCore {
                             netEvent.Packet.Dispose();
                             break;
                     }
-                }
-
-                while (packetQueues[idx].Count > 0) {
-                    if (packetQueues[idx].TryTake(out QueuedPacket packet)) {
-                        peers[idx]?.Send(packet.channel, ref packet.packet);
-                    } else break;
                 }
             }
 
