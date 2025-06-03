@@ -127,6 +127,12 @@ namespace GodotNetCore {
         public static SessionCreationResultEventHandler? OnSessionCreationResultHandler { get; private set; } = null;
         public static SessionListResultEventHandler? OnSessionListHandler { get; private set; } = null;
 
+        static SessionManager() {
+            NetworkManager.OnDisconnectHandler += (UInt32 data) => {
+                CurrentSession = null;
+            };
+        }
+
         /**
          * <summary>Create a new session</summary>
          */
@@ -189,22 +195,6 @@ namespace GodotNetCore {
             Packet packet = PacketUtils.CreatePacket((UInt16)PacketUtils.PredefinedPacketTypeId.GetSessionList, option, SessionFlags);
             NetworkManager.SendPacket(SessionChannel, packet);
             return await tcs.Task;
-        }
-
-        public static async void LeaveSession() {
-            if (CurrentSession == null) {
-                throw new SessionNotFoundException();
-            }
-
-            string serverType = await NetworkManager.GetConnectedServerType();
-            if (serverType != "SESSION_SERVER") {
-                throw new InvalidOperationException("This method should be processed when connected with session server.");
-            }
-
-            Packet packet = PacketUtils.CreateEmptyPacket("LeaveSession", SessionFlags);
-            NetworkManager.SendPacket(SessionChannel, packet);
-
-            CurrentSession = null;
         }
     }
 }

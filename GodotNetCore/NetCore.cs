@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Collections.Generic;
@@ -77,19 +77,23 @@ namespace GodotNetCore {
     public delegate void ServerTypeEventHandler(string serverType);
 
     public static class NetworkManager {
-        private static Thread? ClientThread = null;
-        private static volatile bool ClientRunning = false;
+        private static List<Thread> ClientThreads = new List<Thread>();
+        private static volatile List<bool> ClientRunning = new List<bool>();
+        private static volatile List<Peer?> peers = new List<Peer?>();
+        private static volatile List<Host?> clients = new List<Host?>();
+        private static volatile int latestIndex = -1;
+
         public static volatile UInt32 DisconnectCause = 0;
         private static int Timeout { get; set; } = 15;
 
-        private readonly static ConcurrentQueue<QueuedPacket> packetQueue = new ConcurrentQueue<QueuedPacket>();
+        private static List<BlockingCollection<QueuedPacket>> packetQueues = new List<BlockingCollection<QueuedPacket>>();
 
-        public static EventHandler? OnConnectHandler { get; set; }
-        public static EventHandler? OnDisconnectHandler { get; set; }
-        public static EventHandler? OnTimeoutHandler { get; set; }
-        public static PacketReceiveEventHandler? OnPacketReceiveHandler { get; set; }
-        public static LoginResultEventHandler? OnLoginResultHandler { get; set; }
-        public static ServerTypeEventHandler? OnServerTypeHandler { get; set; }
+        public static event EventHandler? OnConnectHandler;
+        public static event EventHandler? OnDisconnectHandler;
+        public static event EventHandler? OnTimeoutHandler;
+        public static event PacketReceiveEventHandler? OnPacketReceiveHandler;
+        internal static LoginResultEventHandler? OnLoginResultHandler;
+        internal static ServerTypeEventHandler? OnServerTypeHandler;
 
         public static byte LoginChannel { get; set; } = 0;
         public static PacketFlags LoginFlags { get; set; } = PacketFlags.Reliable;
@@ -102,7 +106,6 @@ namespace GodotNetCore {
 
         static NetworkManager() {
             Library.Initialize();
-            packetQueue.Clear();
 
             OnConnectHandler = null;
             OnDisconnectHandler = null;
@@ -160,14 +163,14 @@ namespace GodotNetCore {
         }
 
         public static void SendPacket(byte channel, Packet packet) {
-            if (!ClientRunning) {
+            if (latestIndex < 0 || !ClientRunning[latestIndex]) {
                 throw new InvalidOperationException("Network client is not running. Please connect before sending packets.");
             }
 
             QueuedPacket qpacket;
             qpacket.channel = channel;
             qpacket.packet = packet;
-            packetQueue.Enqueue(qpacket);
+            packetQueues[latestIndex].Add(qpacket);
         }
 
         public static Task<string> GetConnectedServerType() {
@@ -210,27 +213,25 @@ namespace GodotNetCore {
             return await tcs.Task;
         }
 
-        private static void CreateClientThread(string hostName, UInt16 port, ref TaskCompletionSource<bool> tcs) {
-            ClientRunning = true;
-            using Host client = new Host();
+        private static void Run(string hostName, UInt16 port, ref TaskCompletionSource<bool> tcs, int idx) {
+            ClientRunning[idx] = true;
+            clients[idx] = new Host();
             Address address = new Address();
 
             address.SetHost(hostName);
             address.Port = port;
-            client.Create();
+            clients[idx]!.Create();
 
-            Peer peer = client.Connect(address);
+            peers[idx] = clients[idx]!.Connect(address);
 
             bool connected = false;
             Event netEvent;
             bool checkEvent;
 
-            while (ClientRunning) {
-                checkEvent = true;
-
-                if (client.CheckEvents(out netEvent) <= 0) {
-                    if (client.Service(Timeout, out netEvent) <= 0)
-                        checkEvent = false;
+            while (ClientRunning[idx]) {
+                if (clients[idx]!.CheckEvents(out netEvent) <= 0) {
+                    if (clients[idx]!.Service(Timeout, out netEvent) <= 0)
+                        continue;
                 }
 
                 if (checkEvent) {
@@ -238,23 +239,23 @@ namespace GodotNetCore {
                         case EventType.None:
                             break;
 
-                        case EventType.Connect:
+                    case EventType.Connect:
+                        if (!tcs.Task.IsCompleted)
                             tcs.SetResult(true);
-                            connected = true;
-                            OnConnectHandler?.Invoke(netEvent.Data);
-                            break;
+                        OnConnectHandler?.Invoke(netEvent.Data);
+                        break;
 
-                        case EventType.Disconnect:
-                            OnDisconnectHandler?.Invoke(netEvent.Data);
-                            ClientRunning = false;
-                            break;
+                    case EventType.Disconnect:
+                        OnDisconnectHandler?.Invoke(netEvent.Data);
+                        ClientRunning[idx] = false;
+                        break;
 
-                        case EventType.Timeout:
-                            if (!tcs.Task.IsCompleted)
-                                tcs.SetResult(false);
-                            OnTimeoutHandler?.Invoke(netEvent.Data);
-                            ClientRunning = false;
-                            break;
+                    case EventType.Timeout:
+                        if (!tcs.Task.IsCompleted)
+                            tcs.SetResult(false);
+                        OnTimeoutHandler?.Invoke(netEvent.Data);
+                        ClientRunning[idx] = false;
+                        break;
 
                         case EventType.Receive:
                             OnPacketReceiveHandler?.Invoke(netEvent.Packet, netEvent.ChannelID);
@@ -271,44 +272,72 @@ namespace GodotNetCore {
                     }
                 }
 
-                if (connected) {
-                    while (!packetQueue.IsEmpty) {
-                        if (packetQueue.TryDequeue(out QueuedPacket packet)) {
-                            peer.Send(packet.channel, ref packet.packet);
-                        }
-                        else break;
-                    }
+                while (packetQueues[idx].Count > 0) {
+                    if (packetQueues[idx].TryTake(out QueuedPacket packet)) {
+                        peers[idx]?.Send(packet.channel, ref packet.packet);
+                    } else break;
                 }
             }
 
-            if (peer.State == PeerState.Connected) {
-                peer.Disconnect(DisconnectCause);
-                client.Flush();
+            if (peers[idx]?.State == PeerState.Connected) {
+                peers[idx]?.DisconnectNow(DisconnectCause);
+                clients[idx]?.Flush();
             }
 
+            clients[idx]?.Dispose();
+            packetQueues[idx].Dispose();
         }
 
         public static Task<bool> Connect(string hostName, UInt16 port) {
             var tcs = new TaskCompletionSource<bool>();
 
-            new Thread(() => {
-                if (ClientThread != null) {
-                    ClientRunning = false;
-                    ClientThread.Join();
+            int idx = 0;
+            bool selected = false;
+            for (; idx < ClientThreads.Count; idx++) {
+                if (!ClientThreads[idx].IsAlive) {
+                    selected = true;
+                    break;
                 }
+            }
 
-                ClientThread = new Thread(() => CreateClientThread(hostName, port, ref tcs));
-                ClientThread.Start();
-            }).Start();
+            var thread = new Thread(() => {
+                Thread.CurrentThread.Name = $"ClientThread{idx}";
+                Run(hostName, port, ref tcs, idx);
+            });
+
+            if (selected) {
+                packetQueues[idx] = new BlockingCollection<QueuedPacket>();
+                ClientThreads[idx] = thread;
+                ClientRunning[idx] = false;
+            } else {
+                packetQueues.Add(new BlockingCollection<QueuedPacket>());
+                ClientThreads.Add(thread);
+                ClientRunning.Add(false);
+                peers.Add(null);
+                clients.Add(null);
+            }
+
+            latestIndex = idx;
+            thread.Start();
 
             return tcs.Task;
         }
 
         public static void Disconnect(UInt32 cause = 0) {
-            if (ClientThread != null) {
-                DisconnectCause = cause;
-                ClientRunning = false;
+            if (latestIndex < 0) throw new InvalidOperationException();
+
+            packetQueues[latestIndex].CompleteAdding();
+
+            while (packetQueues[latestIndex].Count > 0) {
+                if (packetQueues[latestIndex].TryTake(out QueuedPacket packet)) {
+                    peers[latestIndex]?.Send(packet.channel, ref packet.packet);
+                } else break;
             }
+
+            peers[latestIndex]?.DisconnectNow(cause);
+            clients[latestIndex]?.Flush();
+
+            DisconnectCause = cause;
         }
     }
 }
