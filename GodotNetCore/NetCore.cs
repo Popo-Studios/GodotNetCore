@@ -224,9 +224,7 @@ namespace GodotNetCore {
 
             peers[idx] = clients[idx]!.Connect(address);
 
-            bool connected = false;
             Event netEvent;
-            bool checkEvent;
 
             while (ClientRunning[idx]) {
                 while (packetQueues[idx].Count > 0) {
@@ -240,10 +238,9 @@ namespace GodotNetCore {
                         continue;
                 }
 
-                if (checkEvent) {
-                    switch (netEvent.Type) {
-                        case EventType.None:
-                            break;
+                switch (netEvent.Type) {
+                    case EventType.None:
+                        break;
 
                     case EventType.Connect:
                         if (!tcs.Task.IsCompleted)
@@ -263,19 +260,18 @@ namespace GodotNetCore {
                         ClientRunning[idx] = false;
                         break;
 
-                        case EventType.Receive:
-                            OnPacketReceiveHandler?.Invoke(netEvent.Packet, netEvent.ChannelID);
+                    case EventType.Receive:
+                        OnPacketReceiveHandler?.Invoke(netEvent.Packet, netEvent.ChannelID);
 
-                            ParsedPacket ppacket = PacketUtils.ParsePacket(netEvent.Packet);
-                            if (packetHandlers[ppacket.Header.PacketTypeId] != null) {
-                                packetHandlers[ppacket.Header.PacketTypeId].ForEach(handler => {
-                                    handler.RawHandle(ppacket.RawData);
-                                });
-                            }
+                        ParsedPacket ppacket = PacketUtils.ParsePacket(netEvent.Packet);
+                        if (packetHandlers[ppacket.Header.PacketTypeId] != null) {
+                            packetHandlers[ppacket.Header.PacketTypeId].ForEach(handler => {
+                                handler.RawHandle(ppacket.RawData);
+                            });
+                        }
 
-                            netEvent.Packet.Dispose();
-                            break;
-                    }
+                        netEvent.Packet.Dispose();
+                        break;
                 }
             }
 
